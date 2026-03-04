@@ -4,17 +4,19 @@ Single-page fluid art generator for black-and-white marble style compositions.
 
 ## Features
 
-- Left live preview on white background with adjustable stage size.
+- Left live preview with adjustable stage size and white/black art background mode.
 - Right control panel for:
   - Aspect ratio (including custom ratio)
   - Generation size and display size
   - Flow, direction, swirl, turbulence, viscosity
   - Pattern scale and detail layers
   - Contrast, softness, black dominance, grain
-  - Symmetry and invert
+  - Symmetry, invert, and 2-option art background (white/black)
   - Seed-based deterministic generation
-- Presets (Calm, Storm, Silk, High Contrast).
+- 22 presets including 8 dedicated Suminagashi reference styles.
 - Random seed, regenerate, live evolve, PNG export.
+- Default dark UI theme (black / light text / gold accent).
+- Hybrid rendering: GPU for fast interactive preview, CPU for final/high-quality output fidelity.
 
 ## Run locally
 

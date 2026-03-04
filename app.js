@@ -28,6 +28,7 @@ const dom = {
   softness: document.getElementById("softness"),
   dominance: document.getElementById("dominance"),
   grain: document.getElementById("grain"),
+  paperTone: document.getElementById("paperTone"),
   symmetry: document.getElementById("symmetry"),
   invert: document.getElementById("invert"),
   liveEvolve: document.getElementById("liveEvolve"),
@@ -36,9 +37,20 @@ const dom = {
   downloadBtn: document.getElementById("downloadBtn")
 };
 
-const previewCtx = dom.previewCanvas.getContext("2d");
+const previewCtx = dom.previewCanvas.getContext("2d", { alpha: false, desynchronized: true });
 const bufferCanvas = document.createElement("canvas");
-const bufferCtx = bufferCanvas.getContext("2d");
+const bufferCtx = bufferCanvas.getContext("2d", { alpha: false });
+const gpuCanvas = document.createElement("canvas");
+
+const RENDER_MODE = {
+  INTERACTIVE: "interactive",
+  FULL: "full"
+};
+
+const MIN_INTERACTIVE_BUDGET = 90000;
+const MAX_INTERACTIVE_BUDGET = 520000;
+const INTERACTION_WINDOW_MS = 220;
+const LIVE_TARGET_FPS = 30;
 
 const PRESETS = {
   calm: {
@@ -100,19 +112,289 @@ const PRESETS = {
     grain: 0.06,
     symmetry: "radial",
     invert: false
+  },
+  drift: {
+    flow: 0.47,
+    direction: 310,
+    swirl: 0.62,
+    turbulence: 0.22,
+    viscosity: 0.82,
+    scale: 1.36,
+    detail: 3,
+    contrast: 0.92,
+    softness: 0.17,
+    dominance: -0.04,
+    grain: 0.01,
+    symmetry: "none",
+    invert: false
+  },
+  vein: {
+    flow: 0.98,
+    direction: 262,
+    swirl: 1.42,
+    turbulence: 0.52,
+    viscosity: 0.46,
+    scale: 3.84,
+    detail: 6,
+    contrast: 1.68,
+    softness: 0.045,
+    dominance: 0.12,
+    grain: 0.036,
+    symmetry: "vertical",
+    invert: false
+  },
+  riptide: {
+    flow: 1.66,
+    direction: 158,
+    swirl: 2.5,
+    turbulence: 1.6,
+    viscosity: 0.12,
+    scale: 4.56,
+    detail: 6,
+    contrast: 1.74,
+    softness: 0.05,
+    dominance: 0.18,
+    grain: 0.08,
+    symmetry: "none",
+    invert: false
+  },
+  fog: {
+    flow: 0.36,
+    direction: 92,
+    swirl: 0.56,
+    turbulence: 0.14,
+    viscosity: 0.9,
+    scale: 1.12,
+    detail: 3,
+    contrast: 0.78,
+    softness: 0.22,
+    dominance: -0.38,
+    grain: 0.008,
+    symmetry: "horizontal",
+    invert: false
+  },
+  obsidian: {
+    flow: 1.04,
+    direction: 196,
+    swirl: 0.96,
+    turbulence: 0.44,
+    viscosity: 0.6,
+    scale: 2.62,
+    detail: 5,
+    contrast: 2.2,
+    softness: 0.026,
+    dominance: 0.56,
+    grain: 0.028,
+    symmetry: "none",
+    invert: false
+  },
+  zebra: {
+    flow: 1.2,
+    direction: 14,
+    swirl: 1.86,
+    turbulence: 0.78,
+    viscosity: 0.24,
+    scale: 4.88,
+    detail: 7,
+    contrast: 2.7,
+    softness: 0.02,
+    dominance: 0.06,
+    grain: 0.05,
+    symmetry: "vertical",
+    invert: false
+  },
+  rorschach: {
+    flow: 0.86,
+    direction: 278,
+    swirl: 1.28,
+    turbulence: 0.64,
+    viscosity: 0.5,
+    scale: 2.94,
+    detail: 5,
+    contrast: 1.62,
+    softness: 0.06,
+    dominance: 0,
+    grain: 0.032,
+    symmetry: "both",
+    invert: false
+  },
+  echo: {
+    flow: 0.78,
+    direction: 40,
+    swirl: 1.08,
+    turbulence: 0.41,
+    viscosity: 0.64,
+    scale: 2.12,
+    detail: 4,
+    contrast: 1.18,
+    softness: 0.115,
+    dominance: -0.12,
+    grain: 0.016,
+    symmetry: "none",
+    invert: false
+  },
+  dune: {
+    flow: 1.12,
+    direction: 332,
+    swirl: 0.72,
+    turbulence: 0.36,
+    viscosity: 0.72,
+    scale: 1.62,
+    detail: 4,
+    contrast: 1.34,
+    softness: 0.14,
+    dominance: 0.08,
+    grain: 0.022,
+    symmetry: "horizontal",
+    invert: false
+  },
+  pulse: {
+    flow: 1.34,
+    direction: 226,
+    swirl: 2.02,
+    turbulence: 0.92,
+    viscosity: 0.28,
+    scale: 3.72,
+    detail: 6,
+    contrast: 2.12,
+    softness: 0.032,
+    dominance: -0.06,
+    grain: 0.074,
+    symmetry: "radial",
+    invert: false
+  },
+  sumi_ash_veins: {
+    flow: 0.74,
+    direction: 18,
+    swirl: 1.22,
+    turbulence: 0.42,
+    viscosity: 0.66,
+    scale: 2.22,
+    detail: 6,
+    contrast: 1.62,
+    softness: 0.07,
+    dominance: -0.08,
+    grain: 0.07,
+    symmetry: "none",
+    invert: false,
+    paperTone: "light"
+  },
+  sumi_gilded_current: {
+    flow: 0.92,
+    direction: 32,
+    swirl: 1.04,
+    turbulence: 0.36,
+    viscosity: 0.72,
+    scale: 1.9,
+    detail: 5,
+    contrast: 1.35,
+    softness: 0.11,
+    dominance: 0.2,
+    grain: 0.09,
+    symmetry: "horizontal",
+    invert: false,
+    paperTone: "dark"
+  },
+  sumi_monolith: {
+    flow: 1.02,
+    direction: 248,
+    swirl: 1.6,
+    turbulence: 0.58,
+    viscosity: 0.48,
+    scale: 2.6,
+    detail: 6,
+    contrast: 1.58,
+    softness: 0.06,
+    dominance: 0.12,
+    grain: 0.035,
+    symmetry: "none",
+    invert: false,
+    paperTone: "light"
+  },
+  sumi_abyssal_flow: {
+    flow: 0.62,
+    direction: 210,
+    swirl: 0.88,
+    turbulence: 0.24,
+    viscosity: 0.84,
+    scale: 1.52,
+    detail: 4,
+    contrast: 1.28,
+    softness: 0.15,
+    dominance: 0.28,
+    grain: 0.02,
+    symmetry: "none",
+    invert: false,
+    paperTone: "dark"
+  },
+  sumi_ink_flame: {
+    flow: 1.1,
+    direction: 20,
+    swirl: 1.85,
+    turbulence: 0.55,
+    viscosity: 0.4,
+    scale: 2.7,
+    detail: 6,
+    contrast: 1.44,
+    softness: 0.075,
+    dominance: -0.14,
+    grain: 0.028,
+    symmetry: "none",
+    invert: false,
+    paperTone: "light"
+  },
+  sumi_silver_strata: {
+    flow: 0.68,
+    direction: 338,
+    swirl: 0.92,
+    turbulence: 0.31,
+    viscosity: 0.78,
+    scale: 2.05,
+    detail: 5,
+    contrast: 1.18,
+    softness: 0.13,
+    dominance: -0.03,
+    grain: 0.014,
+    symmetry: "horizontal",
+    invert: false,
+    paperTone: "light"
+  },
+  sumi_void_rift: {
+    flow: 1.26,
+    direction: 296,
+    swirl: 1.32,
+    turbulence: 0.44,
+    viscosity: 0.64,
+    scale: 2.35,
+    detail: 5,
+    contrast: 1.72,
+    softness: 0.09,
+    dominance: 0.34,
+    grain: 0.02,
+    symmetry: "none",
+    invert: false,
+    paperTone: "dark"
+  },
+  sumi_stardust: {
+    flow: 0.88,
+    direction: 58,
+    swirl: 1.46,
+    turbulence: 0.64,
+    viscosity: 0.52,
+    scale: 3.1,
+    detail: 6,
+    contrast: 1.86,
+    softness: 0.055,
+    dominance: 0.21,
+    grain: 0.11,
+    symmetry: "none",
+    invert: false,
+    paperTone: "dark"
   }
 };
 
-let evolutionTime = 0;
-let animationId = 0;
-let lastFrameTime = 0;
-let isRendering = false;
-let renderQueued = false;
-let latestRenderedSettings = null;
-
 const rangeInputs = Array.from(document.querySelectorAll('input[type="range"]'));
 const numberInputs = [dom.seed, dom.aspectW, dom.aspectH];
-const changeInputs = [dom.aspect, dom.symmetry, dom.invert, dom.liveEvolve, dom.preset];
 
 const sliderValueFormatters = {
   longEdge: (v) => `${Math.round(v)} px`,
@@ -133,6 +415,214 @@ const sliderValueFormatters = {
   dominance: (v) => v.toFixed(2),
   grain: (v) => v.toFixed(3)
 };
+
+const previewBuffers = {
+  width: 0,
+  height: 0,
+  field: null,
+  temp: null,
+  imageData: null
+};
+
+const gpu = {
+  available: false,
+  gl: null,
+  program: null,
+  quad: null,
+  uniforms: {}
+};
+
+let settings = null;
+let evolutionTime = 0;
+let animationId = 0;
+let renderRafId = 0;
+let isRendering = false;
+let pendingMode = null;
+let idleFullTimer = 0;
+let lastLiveTickTs = 0;
+let lastInteractionTs = 0;
+let lastRenderMs = 0;
+let smoothedFps = 0;
+let interactivePixelBudget = 220000;
+
+const GPU_VERTEX_SHADER = `
+attribute vec2 aPos;
+varying vec2 vUv;
+void main() {
+  vUv = aPos * 0.5 + 0.5;
+  gl_Position = vec4(aPos, 0.0, 1.0);
+}
+`;
+
+const GPU_FRAGMENT_SHADER = `
+precision highp float;
+varying vec2 vUv;
+
+uniform vec2 uResolution;
+uniform float uTime;
+uniform float uSeed;
+uniform float uFlow;
+uniform float uDirection;
+uniform float uSwirl;
+uniform float uTurbulence;
+uniform float uViscosity;
+uniform float uScale;
+uniform float uDetail;
+uniform float uContrast;
+uniform float uSoftness;
+uniform float uDominance;
+uniform float uGrain;
+uniform float uSymmetry;
+uniform float uInvert;
+uniform float uPaperDark;
+
+float hash2i(vec2 p, float s) {
+  return fract(sin(dot(p + vec2(17.13, 73.71), vec2(127.1, 311.7)) + s * 0.137) * 43758.5453123);
+}
+
+float valueNoise(vec2 p, float s) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+
+  float v00 = hash2i(i + vec2(0.0, 0.0), s);
+  float v10 = hash2i(i + vec2(1.0, 0.0), s);
+  float v01 = hash2i(i + vec2(0.0, 1.0), s);
+  float v11 = hash2i(i + vec2(1.0, 1.0), s);
+
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  float a = mix(v00, v10, u.x);
+  float b = mix(v01, v11, u.x);
+  return mix(a, b, u.y);
+}
+
+float fbm(vec2 p, float octaves, float s) {
+  float value = 0.0;
+  float amp = 0.5;
+  float freq = 1.0;
+  float total = 0.0;
+
+  for (int i = 0; i < 8; i++) {
+    if (float(i) >= octaves) {
+      break;
+    }
+    value += amp * valueNoise(p * freq, s + float(i) * 911.0);
+    total += amp;
+    freq *= 2.03;
+    amp *= 0.5;
+  }
+
+  return value / max(total, 0.0001);
+}
+
+vec2 applySymmetry(vec2 p) {
+  if (uSymmetry > 0.5 && uSymmetry < 1.5) {
+    p.y = abs(p.y);
+  } else if (uSymmetry > 1.5 && uSymmetry < 2.5) {
+    p.x = abs(p.x);
+  } else if (uSymmetry > 2.5 && uSymmetry < 3.5) {
+    p = abs(p);
+  } else if (uSymmetry > 3.5) {
+    float r = length(p);
+    float a = atan(p.y, p.x);
+    float sector = 3.14159265 / 4.0;
+    a = mod(a + sector, sector);
+    a = min(a, sector - a);
+    p = vec2(cos(a), sin(a)) * r;
+  }
+  return p;
+}
+
+float sampleField(vec2 p) {
+  float x = p.x;
+  float y = p.y;
+  float directionRad = radians(uDirection);
+  float damping = 1.0 - uViscosity * 0.35;
+  float octaves = max(2.0, uDetail);
+  float secondaryOctaves = max(2.0, uDetail - 1.0);
+
+  for (int i = 0; i < 3; i++) {
+    float fi = float(i);
+    float f = uScale * (0.72 + fi * 0.72);
+    float n1 = fbm(
+      vec2(
+        x * f + 19.17 + uSeed * 0.001 + uTime * 0.31,
+        y * f - 11.03 + uTime * 0.07
+      ),
+      secondaryOctaves,
+      uSeed + 73.0 * fi
+    );
+    float n2 = fbm(
+      vec2(
+        x * f - 7.93 - uTime * 0.06,
+        y * f + 23.41 + uSeed * 0.001
+      ),
+      secondaryOctaves,
+      uSeed + 149.0 * fi
+    );
+
+    float bend = (n1 - 0.5) * uSwirl * 6.283185307;
+    float fx = cos(directionRad + bend);
+    float fy = sin(directionRad + bend);
+
+    x += (fx * uFlow + (n2 - 0.5) * uTurbulence * 2.0) * 0.17 * damping;
+    y += (fy * uFlow + (n1 - 0.5) * uTurbulence * 2.0) * 0.17 * damping;
+  }
+
+  float base = fbm(
+    vec2(
+      x * uScale + uTime * 0.11,
+      y * uScale - uTime * 0.08
+    ),
+    octaves,
+    uSeed + 991.0
+  );
+  float stripe = fbm(
+    vec2(
+      x * uScale * 1.85 - 5.1,
+      y * uScale * 1.85 + 8.7 + uTime * 0.05
+    ),
+    secondaryOctaves,
+    uSeed + 1831.0
+  );
+  float ridge = 1.0 - abs(2.0 * stripe - 1.0);
+  float wave = sin((x * 1.18 + y * 0.94 + uTime * 0.9) * 3.14159265);
+
+  float value = base * 0.66 + ridge * 0.34;
+  value += wave * 0.08 * uSwirl;
+  return clamp(value, 0.0, 1.0);
+}
+
+void main() {
+  vec2 p = vUv * 2.0 - 1.0;
+  float ratio = uResolution.x / max(uResolution.y, 1.0);
+  if (ratio >= 1.0) {
+    p.x *= ratio;
+  } else {
+    p.y /= ratio;
+  }
+  p = applySymmetry(p);
+
+  float v = sampleField(p);
+  v = clamp((v - 0.5) * uContrast + 0.5, 0.0, 1.0);
+
+  float threshold = 0.5 + uDominance * 0.33;
+  float soft = max(uSoftness, 0.001);
+  float tone = smoothstep(threshold - soft, threshold + soft, v);
+
+  if (uPaperDark > 0.5) {
+    tone = 1.0 - tone;
+  }
+  if (uInvert > 0.5) {
+    tone = 1.0 - tone;
+  }
+  if (uGrain > 0.0) {
+    float g = hash2i(gl_FragCoord.xy, uSeed + 4093.0) - 0.5;
+    tone = clamp(tone + g * uGrain, 0.0, 1.0);
+  }
+
+  gl_FragColor = vec4(vec3(tone), 1.0);
+}
+`;
 
 function parseNumber(value, fallback) {
   const n = Number(value);
@@ -198,23 +688,6 @@ function fbm(x, y, octaves, seed) {
   return value / ampTotal;
 }
 
-function getAspectRatio(settings) {
-  if (settings.aspect === "custom") {
-    const w = clamp(parseNumber(settings.aspectW, 1), 1, 64);
-    const h = clamp(parseNumber(settings.aspectH, 1), 1, 64);
-    return w / h;
-  }
-
-  const parts = settings.aspect.split(":");
-  if (parts.length !== 2) {
-    return 1;
-  }
-
-  const w = parseNumber(parts[0], 1);
-  const h = parseNumber(parts[1], 1);
-  return h === 0 ? 1 : w / h;
-}
-
 function readSettings() {
   return {
     preset: dom.preset.value,
@@ -239,30 +712,59 @@ function readSettings() {
     softness: clamp(parseNumber(dom.softness.value, 0.08), 0.005, 0.25),
     dominance: clamp(parseNumber(dom.dominance.value, 0.12), -1, 1),
     grain: clamp(parseNumber(dom.grain.value, 0.045), 0, 0.22),
+    paperTone: dom.paperTone.value,
     symmetry: dom.symmetry.value,
     invert: dom.invert.checked,
     liveEvolve: dom.liveEvolve.checked
   };
 }
 
-function computeRenderSize(settings) {
-  const ratio = getAspectRatio(settings);
-  if (ratio >= 1) {
-    return {
-      width: Math.round(settings.longEdge),
-      height: Math.max(8, Math.round(settings.longEdge / ratio))
-    };
+function getAspectRatio(currentSettings) {
+  if (currentSettings.aspect === "custom") {
+    return currentSettings.aspectW / currentSettings.aspectH;
   }
 
+  const parts = currentSettings.aspect.split(":");
+  if (parts.length !== 2) {
+    return 1;
+  }
+
+  const w = parseNumber(parts[0], 1);
+  const h = parseNumber(parts[1], 1);
+  return h > 0 ? w / h : 1;
+}
+
+function computeRenderSize(currentSettings, mode) {
+  const ratio = getAspectRatio(currentSettings);
+  const base = ratio >= 1
+    ? {
+        width: Math.round(currentSettings.longEdge),
+        height: Math.max(8, Math.round(currentSettings.longEdge / ratio))
+      }
+    : {
+        width: Math.max(8, Math.round(currentSettings.longEdge * ratio)),
+        height: Math.round(currentSettings.longEdge)
+      };
+
+  if (mode !== RENDER_MODE.INTERACTIVE) {
+    return base;
+  }
+
+  const pixels = base.width * base.height;
+  if (pixels <= interactivePixelBudget) {
+    return base;
+  }
+
+  const scale = Math.sqrt(interactivePixelBudget / pixels);
   return {
-    width: Math.max(8, Math.round(settings.longEdge * ratio)),
-    height: Math.round(settings.longEdge)
+    width: Math.max(96, Math.round(base.width * scale)),
+    height: Math.max(96, Math.round(base.height * scale))
   };
 }
 
-function computePreviewDrawSize(settings, renderWidth, renderHeight) {
-  const ratio = renderWidth / renderHeight;
-  const maxDimension = settings.displaySize;
+function computePreviewDrawSize(currentSettings, fullWidth, fullHeight) {
+  const ratio = fullWidth / fullHeight;
+  const maxDimension = currentSettings.displaySize;
   let width;
   let height;
 
@@ -276,8 +778,8 @@ function computePreviewDrawSize(settings, renderWidth, renderHeight) {
 
   const fitScale = Math.min(
     1,
-    (settings.stageWidth - 24) / width,
-    (settings.stageHeight - 24) / height
+    (currentSettings.stageWidth - 24) / width,
+    (currentSettings.stageHeight - 24) / height
   );
 
   return {
@@ -286,24 +788,21 @@ function computePreviewDrawSize(settings, renderWidth, renderHeight) {
   };
 }
 
-function applyLayout(settings, renderWidth, renderHeight) {
+function applyLayout(currentSettings, fullWidth, fullHeight) {
   const columnWidth = dom.previewColumn.clientWidth;
-  const stageWidth = Math.min(settings.stageWidth, Math.max(280, columnWidth - 24));
-  const stageHeight = settings.stageHeight;
+  const stageWidth = Math.min(currentSettings.stageWidth, Math.max(280, columnWidth - 24));
+  const stageHeight = currentSettings.stageHeight;
   dom.stage.style.width = `${stageWidth}px`;
   dom.stage.style.height = `${stageHeight}px`;
 
-  const drawSize = computePreviewDrawSize(
-    { ...settings, stageWidth, stageHeight },
-    renderWidth,
-    renderHeight
-  );
+  const drawSize = computePreviewDrawSize({ ...currentSettings, stageWidth, stageHeight }, fullWidth, fullHeight);
+  const dpr = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
 
-  const dpr = window.devicePixelRatio || 1;
   dom.previewCanvas.width = Math.max(1, Math.round(drawSize.width * dpr));
   dom.previewCanvas.height = Math.max(1, Math.round(drawSize.height * dpr));
   dom.previewCanvas.style.width = `${drawSize.width}px`;
   dom.previewCanvas.style.height = `${drawSize.height}px`;
+  dom.previewCanvas.style.backgroundColor = currentSettings.paperTone === "dark" ? "#000000" : "#ffffff";
 }
 
 function setSliderOutputValues() {
@@ -312,7 +811,6 @@ function setSliderOutputValues() {
     if (!output) {
       continue;
     }
-
     const numericValue = parseNumber(input.value, 0);
     const formatter = sliderValueFormatters[input.id];
     output.textContent = formatter ? formatter(numericValue) : String(numericValue);
@@ -340,60 +838,75 @@ function applyPreset(name) {
   dom.softness.value = String(preset.softness);
   dom.dominance.value = String(preset.dominance);
   dom.grain.value = String(preset.grain);
+  if (preset.paperTone) {
+    dom.paperTone.value = preset.paperTone;
+  }
   dom.symmetry.value = preset.symmetry;
   dom.invert.checked = Boolean(preset.invert);
-
   setSliderOutputValues();
 }
 
-function sampleField(nx, ny, settings, time) {
+function ensureBuffers(width, height, bufferSet) {
+  if (bufferSet.width === width && bufferSet.height === height && bufferSet.field && bufferSet.temp && bufferSet.imageData) {
+    return bufferSet;
+  }
+
+  bufferSet.width = width;
+  bufferSet.height = height;
+  bufferSet.field = new Float32Array(width * height);
+  bufferSet.temp = new Float32Array(width * height);
+  bufferSet.imageData = new ImageData(width, height);
+  return bufferSet;
+}
+
+function sampleField(nx, ny, currentSettings, time) {
   let x = nx;
   let y = ny;
-  const directionRad = (settings.direction * Math.PI) / 180;
-  const damping = 1 - settings.viscosity * 0.35;
-  const octaves = Math.max(2, settings.detail);
-  const secondaryOctaves = Math.max(2, settings.detail - 1);
+  const directionRad = (currentSettings.direction * Math.PI) / 180;
+  const damping = 1 - currentSettings.viscosity * 0.35;
+  const octaves = Math.max(2, currentSettings.detail);
+  const secondaryOctaves = Math.max(2, currentSettings.detail - 1);
 
   for (let i = 0; i < 3; i += 1) {
-    const f = settings.scale * (0.72 + i * 0.72);
+    const f = currentSettings.scale * (0.72 + i * 0.72);
     const n1 = fbm(
-      x * f + 19.17 + settings.seed * 0.001 + time * 0.31,
+      x * f + 19.17 + currentSettings.seed * 0.001 + time * 0.31,
       y * f - 11.03 + time * 0.07,
       secondaryOctaves,
-      settings.seed + 73 * i
+      currentSettings.seed + 73 * i
     );
     const n2 = fbm(
       x * f - 7.93 - time * 0.06,
-      y * f + 23.41 + settings.seed * 0.001,
+      y * f + 23.41 + currentSettings.seed * 0.001,
       secondaryOctaves,
-      settings.seed + 149 * i
+      currentSettings.seed + 149 * i
     );
 
-    const bend = (n1 - 0.5) * settings.swirl * Math.PI * 2;
+    const bend = (n1 - 0.5) * currentSettings.swirl * Math.PI * 2;
     const fx = Math.cos(directionRad + bend);
     const fy = Math.sin(directionRad + bend);
 
-    x += (fx * settings.flow + (n2 - 0.5) * settings.turbulence * 2) * 0.17 * damping;
-    y += (fy * settings.flow + (n1 - 0.5) * settings.turbulence * 2) * 0.17 * damping;
+    x += (fx * currentSettings.flow + (n2 - 0.5) * currentSettings.turbulence * 2) * 0.17 * damping;
+    y += (fy * currentSettings.flow + (n1 - 0.5) * currentSettings.turbulence * 2) * 0.17 * damping;
   }
 
   const base = fbm(
-    x * settings.scale + time * 0.11,
-    y * settings.scale - time * 0.08,
+    x * currentSettings.scale + time * 0.11,
+    y * currentSettings.scale - time * 0.08,
     octaves,
-    settings.seed + 991
+    currentSettings.seed + 991
   );
   const stripe = fbm(
-    x * settings.scale * 1.85 - 5.1,
-    y * settings.scale * 1.85 + 8.7 + time * 0.05,
+    x * currentSettings.scale * 1.85 - 5.1,
+    y * currentSettings.scale * 1.85 + 8.7 + time * 0.05,
     secondaryOctaves,
-    settings.seed + 1831
+    currentSettings.seed + 1831
   );
   const ridge = 1 - Math.abs(2 * stripe - 1);
 
   let value = base * 0.66 + ridge * 0.34;
   const wave = Math.sin((x * 1.18 + y * 0.94 + time * 0.9) * Math.PI);
-  value += wave * 0.08 * settings.swirl;
+  value += wave * 0.08 * currentSettings.swirl;
   return clamp(value, 0, 1);
 }
 
@@ -418,15 +931,23 @@ function blurPass(field, temp, width, height) {
   }
 }
 
-function renderFluid(width, height, settings, time) {
-  bufferCanvas.width = width;
-  bufferCanvas.height = height;
+function renderFluid(targetCanvas, targetCtx, width, height, currentSettings, time, bufferSet) {
+  if (targetCanvas.width !== width) {
+    targetCanvas.width = width;
+  }
+  if (targetCanvas.height !== height) {
+    targetCanvas.height = height;
+  }
 
-  const field = new Float32Array(width * height);
+  const buffers = ensureBuffers(width, height, bufferSet || { width: 0, height: 0 });
+  const field = buffers.field;
+  const temp = buffers.temp;
+  const imageData = buffers.imageData;
+  const data = imageData.data;
   const invW = width > 1 ? 1 / (width - 1) : 1;
   const invH = height > 1 ? 1 / (height - 1) : 1;
   const ratio = width / height;
-  const symmetryMode = settings.symmetry;
+  const symmetryMode = currentSettings.symmetry;
 
   for (let y = 0; y < height; y += 1) {
     const ny = y * invH * 2 - 1;
@@ -457,219 +978,498 @@ function renderFluid(width, height, settings, time) {
         py = Math.sin(a) * r;
       }
 
-      field[y * width + x] = sampleField(px, py, settings, time);
+      field[y * width + x] = sampleField(px, py, currentSettings, time);
     }
   }
 
-  if (settings.viscosity > 0.6) {
-    const passes = 1 + Math.round((settings.viscosity - 0.6) * 5);
-    const temp = new Float32Array(field.length);
+  if (currentSettings.viscosity > 0.6) {
+    const passes = 1 + Math.round((currentSettings.viscosity - 0.6) * 5);
     for (let i = 0; i < passes; i += 1) {
       blurPass(field, temp, width, height);
     }
   }
 
-  const image = bufferCtx.createImageData(width, height);
-  const data = image.data;
-  const threshold = 0.5 + settings.dominance * 0.33;
-  const soft = Math.max(settings.softness, 0.001);
+  const threshold = 0.5 + currentSettings.dominance * 0.33;
+  const soft = Math.max(currentSettings.softness, 0.001);
 
   for (let i = 0, j = 0; i < field.length; i += 1, j += 4) {
-    let v = (field[i] - 0.5) * settings.contrast + 0.5;
+    let v = (field[i] - 0.5) * currentSettings.contrast + 0.5;
     v = clamp(v, 0, 1);
-    let white = smoothstep(threshold - soft, threshold + soft, v);
-    if (settings.invert) {
-      white = 1 - white;
-    }
+    let tone = smoothstep(threshold - soft, threshold + soft, v);
 
-    if (settings.grain > 0) {
+    if (currentSettings.paperTone === "dark") {
+      tone = 1 - tone;
+    }
+    if (currentSettings.invert) {
+      tone = 1 - tone;
+    }
+    if (currentSettings.grain > 0) {
       const x = i % width;
       const y = (i / width) | 0;
-      white += (hash2i(x, y, settings.seed + 4093) - 0.5) * settings.grain;
-      white = clamp(white, 0, 1);
+      tone += (hash2i(x, y, currentSettings.seed + 4093) - 0.5) * currentSettings.grain;
+      tone = clamp(tone, 0, 1);
     }
 
-    const c = Math.round(white * 255);
+    const c = Math.round(tone * 255);
     data[j] = c;
     data[j + 1] = c;
     data[j + 2] = c;
     data[j + 3] = 255;
   }
 
-  bufferCtx.putImageData(image, 0, 0);
+  targetCtx.putImageData(imageData, 0, 0);
 }
 
-function drawToPreview() {
+function drawToPreviewFrom(sourceCanvas) {
   const cssWidth = parseNumber(dom.previewCanvas.style.width.replace("px", ""), 1);
   const cssHeight = parseNumber(dom.previewCanvas.style.height.replace("px", ""), 1);
-  const dpr = window.devicePixelRatio || 1;
+  const dpr = Math.min(2, Math.max(1, window.devicePixelRatio || 1));
 
   previewCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
   previewCtx.clearRect(0, 0, cssWidth, cssHeight);
   previewCtx.imageSmoothingEnabled = true;
-  previewCtx.drawImage(bufferCanvas, 0, 0, cssWidth, cssHeight);
+  previewCtx.imageSmoothingQuality = "high";
+  previewCtx.drawImage(sourceCanvas, 0, 0, cssWidth, cssHeight);
 }
 
-function queueRender() {
-  renderQueued = true;
-  if (!isRendering) {
-    requestAnimationFrame(runRender);
-  }
-}
+function setStatus(mode, renderSize, fullSize, elapsedMs, backend) {
+  const fps = 1000 / Math.max(1, elapsedMs);
+  smoothedFps = smoothedFps ? lerp(smoothedFps, fps, 0.2) : fps;
+  lastRenderMs = lastRenderMs ? lerp(lastRenderMs, elapsedMs, 0.2) : elapsedMs;
 
-function runRender() {
-  if (!renderQueued || isRendering) {
+  if (mode === RENDER_MODE.INTERACTIVE || settings.liveEvolve) {
+    dom.status.textContent = `Live ${backend} ${renderSize.width}x${renderSize.height} | ${lastRenderMs.toFixed(1)} ms | ${smoothedFps.toFixed(0)} fps`;
     return;
   }
 
-  renderQueued = false;
+  dom.status.textContent = `HQ CPU ${fullSize.width}x${fullSize.height} | ${elapsedMs.toFixed(0)} ms`;
+}
+
+function createShader(gl, type, source) {
+  const shader = gl.createShader(type);
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    const error = gl.getShaderInfoLog(shader) || "Shader compile failed";
+    gl.deleteShader(shader);
+    throw new Error(error);
+  }
+  return shader;
+}
+
+function createProgram(gl, vertexSource, fragmentSource) {
+  const vs = createShader(gl, gl.VERTEX_SHADER, vertexSource);
+  const fs = createShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
+  const program = gl.createProgram();
+  gl.attachShader(program, vs);
+  gl.attachShader(program, fs);
+  gl.linkProgram(program);
+  gl.deleteShader(vs);
+  gl.deleteShader(fs);
+
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    const error = gl.getProgramInfoLog(program) || "Program link failed";
+    gl.deleteProgram(program);
+    throw new Error(error);
+  }
+  return program;
+}
+
+function symmetryToNumber(value) {
+  if (value === "horizontal") {
+    return 1;
+  }
+  if (value === "vertical") {
+    return 2;
+  }
+  if (value === "both") {
+    return 3;
+  }
+  if (value === "radial") {
+    return 4;
+  }
+  return 0;
+}
+
+function initGpuRenderer() {
+  try {
+    const gl = gpuCanvas.getContext("webgl", {
+      alpha: false,
+      antialias: false,
+      depth: false,
+      stencil: false,
+      premultipliedAlpha: false,
+      desynchronized: true
+    });
+
+    if (!gl) {
+      gpu.available = false;
+      return;
+    }
+
+    const program = createProgram(gl, GPU_VERTEX_SHADER, GPU_FRAGMENT_SHADER);
+    const quad = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]),
+      gl.STATIC_DRAW
+    );
+
+    gpu.available = true;
+    gpu.gl = gl;
+    gpu.program = program;
+    gpu.quad = quad;
+    gpu.uniforms = {
+      uResolution: gl.getUniformLocation(program, "uResolution"),
+      uTime: gl.getUniformLocation(program, "uTime"),
+      uSeed: gl.getUniformLocation(program, "uSeed"),
+      uFlow: gl.getUniformLocation(program, "uFlow"),
+      uDirection: gl.getUniformLocation(program, "uDirection"),
+      uSwirl: gl.getUniformLocation(program, "uSwirl"),
+      uTurbulence: gl.getUniformLocation(program, "uTurbulence"),
+      uViscosity: gl.getUniformLocation(program, "uViscosity"),
+      uScale: gl.getUniformLocation(program, "uScale"),
+      uDetail: gl.getUniformLocation(program, "uDetail"),
+      uContrast: gl.getUniformLocation(program, "uContrast"),
+      uSoftness: gl.getUniformLocation(program, "uSoftness"),
+      uDominance: gl.getUniformLocation(program, "uDominance"),
+      uGrain: gl.getUniformLocation(program, "uGrain"),
+      uSymmetry: gl.getUniformLocation(program, "uSymmetry"),
+      uInvert: gl.getUniformLocation(program, "uInvert"),
+      uPaperDark: gl.getUniformLocation(program, "uPaperDark")
+    };
+  } catch (err) {
+    gpu.available = false;
+    gpu.gl = null;
+    gpu.program = null;
+    gpu.quad = null;
+    gpu.uniforms = {};
+  }
+}
+
+function renderGpu(width, height, currentSettings, time) {
+  const gl = gpu.gl;
+  const uniforms = gpu.uniforms;
+
+  if (!gpu.available || !gl || !gpu.program) {
+    return false;
+  }
+
+  if (gpuCanvas.width !== width) {
+    gpuCanvas.width = width;
+  }
+  if (gpuCanvas.height !== height) {
+    gpuCanvas.height = height;
+  }
+
+  gl.viewport(0, 0, width, height);
+  gl.useProgram(gpu.program);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.bindBuffer(gl.ARRAY_BUFFER, gpu.quad);
+  const aPos = gl.getAttribLocation(gpu.program, "aPos");
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+  gl.uniform2f(uniforms.uResolution, width, height);
+  gl.uniform1f(uniforms.uTime, time);
+  gl.uniform1f(uniforms.uSeed, currentSettings.seed);
+  gl.uniform1f(uniforms.uFlow, currentSettings.flow);
+  gl.uniform1f(uniforms.uDirection, currentSettings.direction);
+  gl.uniform1f(uniforms.uSwirl, currentSettings.swirl);
+  gl.uniform1f(uniforms.uTurbulence, currentSettings.turbulence);
+  gl.uniform1f(uniforms.uViscosity, currentSettings.viscosity);
+  gl.uniform1f(uniforms.uScale, currentSettings.scale);
+  gl.uniform1f(uniforms.uDetail, currentSettings.detail);
+  gl.uniform1f(uniforms.uContrast, currentSettings.contrast);
+  gl.uniform1f(uniforms.uSoftness, currentSettings.softness);
+  gl.uniform1f(uniforms.uDominance, currentSettings.dominance);
+  gl.uniform1f(uniforms.uGrain, currentSettings.grain);
+  gl.uniform1f(uniforms.uSymmetry, symmetryToNumber(currentSettings.symmetry));
+  gl.uniform1f(uniforms.uInvert, currentSettings.invert ? 1 : 0);
+  gl.uniform1f(uniforms.uPaperDark, currentSettings.paperTone === "dark" ? 1 : 0);
+
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  return true;
+}
+
+function requestRender(mode) {
+  if (mode === RENDER_MODE.INTERACTIVE) {
+    pendingMode = RENDER_MODE.INTERACTIVE;
+  } else if (pendingMode !== RENDER_MODE.INTERACTIVE) {
+    pendingMode = RENDER_MODE.FULL;
+  }
+
+  if (!renderRafId) {
+    renderRafId = requestAnimationFrame(processRenderQueue);
+  }
+}
+
+function scheduleIdleFullRender(delayMs) {
+  if (settings.liveEvolve) {
+    return;
+  }
+  clearTimeout(idleFullTimer);
+  idleFullTimer = window.setTimeout(() => {
+    requestRender(RENDER_MODE.FULL);
+  }, delayMs);
+}
+
+function processRenderQueue() {
+  renderRafId = 0;
+  if (!pendingMode || isRendering) {
+    return;
+  }
+
   isRendering = true;
-  const settings = readSettings();
+  const requestedMode = pendingMode;
+  pendingMode = null;
+
+  settings = readSettings();
   updateCustomAspectVisibility();
   setSliderOutputValues();
 
-  const { width, height } = computeRenderSize(settings);
-  applyLayout(settings, width, height);
-  dom.status.textContent = "Rendering...";
+  const fullSize = computeRenderSize(settings, RENDER_MODE.FULL);
+  const interactiveActive = settings.liveEvolve || performance.now() - lastInteractionTs < INTERACTION_WINDOW_MS;
+  const mode = interactiveActive ? RENDER_MODE.INTERACTIVE : requestedMode;
+  const renderSize = mode === RENDER_MODE.INTERACTIVE
+    ? computeRenderSize(settings, RENDER_MODE.INTERACTIVE)
+    : fullSize;
 
-  setTimeout(() => {
-    const start = performance.now();
-    renderFluid(width, height, settings, evolutionTime);
-    drawToPreview();
-    const elapsed = performance.now() - start;
-    dom.status.textContent = `${width}x${height} | ${elapsed.toFixed(0)} ms`;
-    latestRenderedSettings = { ...settings, width, height };
-    isRendering = false;
-    if (renderQueued) {
-      runRender();
+  applyLayout(settings, fullSize.width, fullSize.height);
+
+  const start = performance.now();
+  let backend = "CPU";
+
+  if (mode === RENDER_MODE.INTERACTIVE && gpu.available) {
+    const ok = renderGpu(renderSize.width, renderSize.height, settings, evolutionTime);
+    if (ok) {
+      drawToPreviewFrom(gpuCanvas);
+      backend = "GPU";
+    } else {
+      renderFluid(bufferCanvas, bufferCtx, renderSize.width, renderSize.height, settings, evolutionTime, previewBuffers);
+      drawToPreviewFrom(bufferCanvas);
     }
-  }, 0);
+  } else {
+    renderFluid(bufferCanvas, bufferCtx, renderSize.width, renderSize.height, settings, evolutionTime, previewBuffers);
+    drawToPreviewFrom(bufferCanvas);
+  }
+
+  const elapsed = performance.now() - start;
+
+  if (mode === RENDER_MODE.INTERACTIVE) {
+    if (backend === "GPU") {
+      if (elapsed > 20) {
+        interactivePixelBudget = Math.max(MIN_INTERACTIVE_BUDGET, Math.floor(interactivePixelBudget * 0.9));
+      } else if (elapsed < 8) {
+        interactivePixelBudget = Math.min(MAX_INTERACTIVE_BUDGET, Math.floor(interactivePixelBudget * 1.08));
+      }
+    } else {
+      if (elapsed > 30) {
+        interactivePixelBudget = Math.max(MIN_INTERACTIVE_BUDGET, Math.floor(interactivePixelBudget * 0.88));
+      } else if (elapsed < 15) {
+        interactivePixelBudget = Math.min(MAX_INTERACTIVE_BUDGET, Math.floor(interactivePixelBudget * 1.07));
+      }
+    }
+  }
+
+  setStatus(mode, renderSize, fullSize, elapsed, backend);
+  isRendering = false;
+
+  if (pendingMode) {
+    requestRender(pendingMode);
+  }
 }
 
-function runAnimationTick(timestamp) {
-  const settings = readSettings();
-  if (!settings.liveEvolve) {
+function runAnimationTick(ts) {
+  if (!dom.liveEvolve.checked) {
     return;
   }
 
-  if (!lastFrameTime) {
-    lastFrameTime = timestamp;
+  if (!runAnimationTick.lastTs) {
+    runAnimationTick.lastTs = ts;
   }
 
-  const dt = (timestamp - lastFrameTime) / 1000;
-  lastFrameTime = timestamp;
+  const dt = (ts - runAnimationTick.lastTs) / 1000;
+  runAnimationTick.lastTs = ts;
+  settings = readSettings();
   evolutionTime += dt * settings.evolveSpeed;
 
-  const rerenderEveryMs = 130;
-  if (!isRendering) {
-    if (!runAnimationTick.lastRenderTs) {
-      runAnimationTick.lastRenderTs = 0;
-    }
-    if (timestamp - runAnimationTick.lastRenderTs > rerenderEveryMs) {
-      queueRender();
-      runAnimationTick.lastRenderTs = timestamp;
-    }
+  const step = 1000 / LIVE_TARGET_FPS;
+  if (ts - lastLiveTickTs >= step) {
+    requestRender(RENDER_MODE.INTERACTIVE);
+    lastLiveTickTs = ts;
   }
 
   animationId = requestAnimationFrame(runAnimationTick);
 }
 
 function setLiveEvolve(enabled) {
+  cancelAnimationFrame(animationId);
+  runAnimationTick.lastTs = 0;
+  lastLiveTickTs = 0;
+
   if (enabled) {
-    cancelAnimationFrame(animationId);
-    lastFrameTime = 0;
+    requestRender(RENDER_MODE.INTERACTIVE);
     animationId = requestAnimationFrame(runAnimationTick);
   } else {
-    cancelAnimationFrame(animationId);
-    lastFrameTime = 0;
-    runAnimationTick.lastRenderTs = 0;
+    requestRender(RENDER_MODE.FULL);
   }
 }
 
 function randomSeed() {
-  const value = Math.floor(Math.random() * 900000000) + 1;
-  dom.seed.value = String(value);
+  dom.seed.value = String(Math.floor(Math.random() * 900000000) + 1);
 }
 
 function exportPng() {
-  if (!latestRenderedSettings) {
-    return;
+  dom.downloadBtn.disabled = true;
+  dom.status.textContent = "Exporting...";
+
+  requestAnimationFrame(() => {
+    try {
+      const currentSettings = readSettings();
+      const fullSize = computeRenderSize(currentSettings, RENDER_MODE.FULL);
+      const exportCanvas = document.createElement("canvas");
+      const exportCtx = exportCanvas.getContext("2d", { alpha: false });
+      const exportBuffers = { width: 0, height: 0, field: null, temp: null, imageData: null };
+
+      renderFluid(
+        exportCanvas,
+        exportCtx,
+        fullSize.width,
+        fullSize.height,
+        currentSettings,
+        evolutionTime,
+        exportBuffers
+      );
+
+      let outputCanvas = exportCanvas;
+      const scale = Math.round(currentSettings.exportScale);
+      if (scale > 1) {
+        const scaledCanvas = document.createElement("canvas");
+        scaledCanvas.width = exportCanvas.width * scale;
+        scaledCanvas.height = exportCanvas.height * scale;
+        const scaledCtx = scaledCanvas.getContext("2d");
+        scaledCtx.imageSmoothingEnabled = true;
+        scaledCtx.imageSmoothingQuality = "high";
+        scaledCtx.drawImage(exportCanvas, 0, 0, scaledCanvas.width, scaledCanvas.height);
+        outputCanvas = scaledCanvas;
+      }
+
+      const link = document.createElement("a");
+      link.href = outputCanvas.toDataURL("image/png");
+      link.download = `fluidform_seed-${currentSettings.seed}_${outputCanvas.width}x${outputCanvas.height}.png`;
+      link.click();
+
+      dom.status.textContent = `Exported ${outputCanvas.width}x${outputCanvas.height}`;
+    } catch (err) {
+      dom.status.textContent = `Export failed: ${String(err.message || err)}`;
+    } finally {
+      dom.downloadBtn.disabled = false;
+      requestRender(RENDER_MODE.FULL);
+    }
+  });
+}
+
+function handleInteractiveInput() {
+  dom.preset.value = "custom";
+  lastInteractionTs = performance.now();
+  settings = readSettings();
+  setSliderOutputValues();
+  requestRender(RENDER_MODE.INTERACTIVE);
+  scheduleIdleFullRender(170);
+}
+
+function handleChangeInput(customizePreset, delay) {
+  if (customizePreset) {
+    dom.preset.value = "custom";
   }
-
-  const scale = Math.round(readSettings().exportScale);
-  let sourceCanvas = bufferCanvas;
-
-  if (scale > 1) {
-    const outCanvas = document.createElement("canvas");
-    outCanvas.width = latestRenderedSettings.width * scale;
-    outCanvas.height = latestRenderedSettings.height * scale;
-    const outCtx = outCanvas.getContext("2d");
-    outCtx.imageSmoothingEnabled = true;
-    outCtx.drawImage(sourceCanvas, 0, 0, outCanvas.width, outCanvas.height);
-    sourceCanvas = outCanvas;
-  }
-
-  const anchor = document.createElement("a");
-  anchor.href = sourceCanvas.toDataURL("image/png");
-  anchor.download = `fluidform_seed-${latestRenderedSettings.seed}_${sourceCanvas.width}x${sourceCanvas.height}.png`;
-  anchor.click();
+  lastInteractionTs = performance.now();
+  settings = readSettings();
+  setSliderOutputValues();
+  requestRender(settings.liveEvolve ? RENDER_MODE.INTERACTIVE : RENDER_MODE.FULL);
+  scheduleIdleFullRender(delay);
 }
 
 function setupEvents() {
-  rangeInputs.forEach((input) => {
-    input.addEventListener("input", () => {
-      dom.preset.value = "custom";
-      queueRender();
+  for (const input of rangeInputs) {
+    input.addEventListener("input", handleInteractiveInput);
+    input.addEventListener("change", () => {
+      settings = readSettings();
+      if (!settings.liveEvolve) {
+        requestRender(RENDER_MODE.FULL);
+      }
     });
+  }
+
+  for (const input of numberInputs) {
+    input.addEventListener("change", () => handleChangeInput(true, 120));
+  }
+
+  dom.aspect.addEventListener("change", () => {
+    dom.preset.value = "custom";
+    lastInteractionTs = performance.now();
+    updateCustomAspectVisibility();
+    settings = readSettings();
+    requestRender(settings.liveEvolve ? RENDER_MODE.INTERACTIVE : RENDER_MODE.FULL);
+    scheduleIdleFullRender(100);
   });
 
-  numberInputs.forEach((input) => {
-    input.addEventListener("change", () => {
-      dom.preset.value = "custom";
-      queueRender();
-    });
+  dom.paperTone.addEventListener("change", () => handleChangeInput(false, 60));
+  dom.symmetry.addEventListener("change", () => handleChangeInput(true, 90));
+  dom.invert.addEventListener("change", () => handleChangeInput(true, 90));
+
+  dom.preset.addEventListener("change", () => {
+    if (dom.preset.value !== "custom") {
+      applyPreset(dom.preset.value);
+    }
+    settings = readSettings();
+    requestRender(settings.liveEvolve ? RENDER_MODE.INTERACTIVE : RENDER_MODE.FULL);
+    scheduleIdleFullRender(80);
   });
 
-  changeInputs.forEach((input) => {
-    input.addEventListener("change", () => {
-      if (input === dom.preset && dom.preset.value !== "custom") {
-        applyPreset(dom.preset.value);
-      } else if (input !== dom.liveEvolve) {
-        dom.preset.value = "custom";
-      }
-
-      if (input === dom.liveEvolve) {
-        setLiveEvolve(dom.liveEvolve.checked);
-      }
-      queueRender();
-    });
+  dom.liveEvolve.addEventListener("change", () => {
+    settings = readSettings();
+    setLiveEvolve(settings.liveEvolve);
   });
 
   dom.regenBtn.addEventListener("click", () => {
-    evolutionTime = 0;
-    queueRender();
+    evolutionTime += 0.35;
+    lastInteractionTs = performance.now();
+    settings = readSettings();
+    requestRender(settings.liveEvolve ? RENDER_MODE.INTERACTIVE : RENDER_MODE.FULL);
+    scheduleIdleFullRender(90);
   });
 
   dom.randomSeedBtn.addEventListener("click", () => {
     randomSeed();
     dom.preset.value = "custom";
-    queueRender();
+    lastInteractionTs = performance.now();
+    settings = readSettings();
+    requestRender(settings.liveEvolve ? RENDER_MODE.INTERACTIVE : RENDER_MODE.FULL);
+    scheduleIdleFullRender(90);
   });
 
-  dom.downloadBtn.addEventListener("click", () => {
-    exportPng();
-  });
+  dom.downloadBtn.addEventListener("click", exportPng);
 
   window.addEventListener("resize", () => {
-    queueRender();
+    lastInteractionTs = performance.now();
+    settings = readSettings();
+    requestRender(settings.liveEvolve ? RENDER_MODE.INTERACTIVE : RENDER_MODE.FULL);
+    scheduleIdleFullRender(130);
   });
 }
 
 function init() {
   setSliderOutputValues();
   updateCustomAspectVisibility();
+  settings = readSettings();
+  initGpuRenderer();
   setupEvents();
-  queueRender();
+  requestRender(RENDER_MODE.FULL);
+  if (settings.liveEvolve) {
+    setLiveEvolve(true);
+  }
 }
 
 init();
