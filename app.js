@@ -31,13 +31,18 @@ const dom = {
   paperTone: document.getElementById("paperTone"),
   symmetry: document.getElementById("symmetry"),
   invert: document.getElementById("invert"),
+  islands: document.getElementById("islands"),
+  islandScale: document.getElementById("islandScale"),
+  blankZones: document.getElementById("blankZones"),
   liveEvolve: document.getElementById("liveEvolve"),
   regenBtn: document.getElementById("regenBtn"),
   randomSeedBtn: document.getElementById("randomSeedBtn"),
   downloadBtn: document.getElementById("downloadBtn")
 };
 
-const previewCtx = dom.previewCanvas.getContext("2d", { alpha: false, desynchronized: true });
+const previewCtx = dom.previewCanvas
+  ? dom.previewCanvas.getContext("2d", { alpha: false, desynchronized: true })
+  : null;
 const bufferCanvas = document.createElement("canvas");
 const bufferCtx = bufferCanvas.getContext("2d", { alpha: false });
 const gpuCanvas = document.createElement("canvas");
@@ -413,7 +418,9 @@ const sliderValueFormatters = {
   contrast: (v) => `x${v.toFixed(2)}`,
   softness: (v) => v.toFixed(3),
   dominance: (v) => v.toFixed(2),
-  grain: (v) => v.toFixed(3)
+  grain: (v) => v.toFixed(3),
+  islands: (v) => v.toFixed(2),
+  islandScale: (v) => v.toFixed(1)
 };
 
 const previewBuffers = {
@@ -475,6 +482,11 @@ uniform float uGrain;
 uniform float uSymmetry;
 uniform float uInvert;
 uniform float uPaperDark;
+uniform float uIslands;
+uniform float uIslandScale;
+uniform vec4 uZones[4];
+uniform vec4 uZoneFeather;
+uniform float uZoneCount;
 
 float hash2i(vec2 p, float s) {
   return fract(sin(dot(p + vec2(17.13, 73.71), vec2(127.1, 311.7)) + s * 0.137) * 43758.5453123);
@@ -609,11 +621,41 @@ void main() {
   float soft = max(uSoftness, 0.001);
   float tone = smoothstep(threshold - soft, threshold + soft, v);
 
+  if (uIslands > 0.0) {
+    vec2 ip = vUv * 2.0 - 1.0;
+    if (ratio >= 1.0) {
+      ip.x *= ratio;
+    } else {
+      ip.y /= ratio;
+    }
+    float n = fbm(vec2(ip.x * uIslandScale + 31.7, ip.y * uIslandScale - 17.3), 3.0, uSeed + 7777.0);
+    float thr = 1.0 - uIslands * 0.42;
+    float m = smoothstep(thr, thr + 0.05, n);
+    tone *= 1.0 - m;
+  }
+
   if (uPaperDark > 0.5) {
     tone = 1.0 - tone;
   }
   if (uInvert > 0.5) {
     tone = 1.0 - tone;
+  }
+
+  if (uZoneCount > 0.5) {
+    vec2 uv = vec2(vUv.x, 1.0 - vUv.y);
+    float bg = uPaperDark > 0.5 ? 0.0 : 1.0;
+    float mask = 0.0;
+    for (int z = 0; z < 4; z++) {
+      if (float(z) >= uZoneCount) {
+        break;
+      }
+      vec2 d = (uv - uZones[z].xy) / uZones[z].zw;
+      float dist = dot(d, d);
+      float feather = z == 0 ? uZoneFeather.x : (z == 1 ? uZoneFeather.y : (z == 2 ? uZoneFeather.z : uZoneFeather.w));
+      float zm = 1.0 - smoothstep(1.0 - feather, 1.0 + feather, dist);
+      mask = max(mask, zm);
+    }
+    tone = mix(tone, bg, mask);
   }
   if (uGrain > 0.0) {
     float g = hash2i(gl_FragCoord.xy, uSeed + 4093.0) - 0.5;
@@ -688,8 +730,35 @@ function fbm(x, y, octaves, seed) {
   return value / ampTotal;
 }
 
+// Parse blank-zone lines "cx,cy,rx,ry,feather" (normalized 0..1, y down) into ellipse objects.
+function parseBlankZones(text) {
+  if (!text) {
+    return [];
+  }
+  const zones = [];
+  for (const line of String(text).split("\n")) {
+    const parts = line.split(",").map((s) => Number(s.trim()));
+    if (parts.length >= 4 && parts.slice(0, 4).every(Number.isFinite)) {
+      zones.push({
+        cx: parts[0],
+        cy: parts[1],
+        rx: Math.max(parts[2], 0.001),
+        ry: Math.max(parts[3], 0.001),
+        feather: Number.isFinite(parts[4]) ? clamp(parts[4], 0.01, 2) : 0.35
+      });
+    }
+    if (zones.length === 4) {
+      break;
+    }
+  }
+  return zones;
+}
+
 function readSettings() {
   return {
+    islands: clamp(parseNumber(dom.islands && dom.islands.value, 0), 0, 1),
+    islandScale: clamp(parseNumber(dom.islandScale && dom.islandScale.value, 5), 1, 12),
+    blankZones: parseBlankZones(dom.blankZones ? dom.blankZones.value : ""),
     preset: dom.preset.value,
     aspect: dom.aspect.value,
     aspectW: clamp(parseNumber(dom.aspectW.value, 3), 1, 64),
@@ -991,11 +1060,37 @@ function renderFluid(targetCanvas, targetCtx, width, height, currentSettings, ti
 
   const threshold = 0.5 + currentSettings.dominance * 0.33;
   const soft = Math.max(currentSettings.softness, 0.001);
+  const islands = currentSettings.islands || 0;
+  const islandScale = currentSettings.islandScale || 5;
+  const islandThr = 1 - islands * 0.42;
+  const zones = currentSettings.blankZones || [];
+  const bgTone = currentSettings.paperTone === "dark" ? 0 : 1;
 
   for (let i = 0, j = 0; i < field.length; i += 1, j += 4) {
+    const x = i % width;
+    const y = (i / width) | 0;
     let v = (field[i] - 0.5) * currentSettings.contrast + 0.5;
     v = clamp(v, 0, 1);
     let tone = smoothstep(threshold - soft, threshold + soft, v);
+
+    // detached ink islands: sparse blobs from an independent noise layer
+    if (islands > 0) {
+      let px = (x * invW * 2 - 1);
+      let py = (y * invH * 2 - 1);
+      if (ratio >= 1) {
+        px *= ratio;
+      } else {
+        py /= ratio;
+      }
+      const n = fbm(
+        px * islandScale + 31.7,
+        py * islandScale - 17.3,
+        3,
+        currentSettings.seed + 7777
+      );
+      const m = smoothstep(islandThr, islandThr + 0.05, n);
+      tone *= 1 - m;
+    }
 
     if (currentSettings.paperTone === "dark") {
       tone = 1 - tone;
@@ -1003,9 +1098,24 @@ function renderFluid(targetCanvas, targetCtx, width, height, currentSettings, ti
     if (currentSettings.invert) {
       tone = 1 - tone;
     }
+
+    // blank areas: fade back to the paper tone inside exclusion ellipses
+    if (zones.length > 0) {
+      const u = x * invW;
+      const w2 = y * invH;
+      let mask = 0;
+      for (let z = 0; z < zones.length; z += 1) {
+        const zone = zones[z];
+        const dx = (u - zone.cx) / zone.rx;
+        const dy = (w2 - zone.cy) / zone.ry;
+        const d = dx * dx + dy * dy;
+        const zm = 1 - smoothstep(1 - zone.feather, 1 + zone.feather, d);
+        mask = Math.max(mask, zm);
+      }
+      tone = lerp(tone, bgTone, mask);
+    }
+
     if (currentSettings.grain > 0) {
-      const x = i % width;
-      const y = (i / width) | 0;
       tone += (hash2i(x, y, currentSettings.seed + 4093) - 0.5) * currentSettings.grain;
       tone = clamp(tone, 0, 1);
     }
@@ -1137,7 +1247,12 @@ function initGpuRenderer() {
       uGrain: gl.getUniformLocation(program, "uGrain"),
       uSymmetry: gl.getUniformLocation(program, "uSymmetry"),
       uInvert: gl.getUniformLocation(program, "uInvert"),
-      uPaperDark: gl.getUniformLocation(program, "uPaperDark")
+      uPaperDark: gl.getUniformLocation(program, "uPaperDark"),
+      uIslands: gl.getUniformLocation(program, "uIslands"),
+      uIslandScale: gl.getUniformLocation(program, "uIslandScale"),
+      uZones: gl.getUniformLocation(program, "uZones"),
+      uZoneFeather: gl.getUniformLocation(program, "uZoneFeather"),
+      uZoneCount: gl.getUniformLocation(program, "uZoneCount")
     };
   } catch (err) {
     gpu.available = false;
@@ -1188,6 +1303,21 @@ function renderGpu(width, height, currentSettings, time) {
   gl.uniform1f(uniforms.uSymmetry, symmetryToNumber(currentSettings.symmetry));
   gl.uniform1f(uniforms.uInvert, currentSettings.invert ? 1 : 0);
   gl.uniform1f(uniforms.uPaperDark, currentSettings.paperTone === "dark" ? 1 : 0);
+  gl.uniform1f(uniforms.uIslands, currentSettings.islands || 0);
+  gl.uniform1f(uniforms.uIslandScale, currentSettings.islandScale || 5);
+  const zones = currentSettings.blankZones || [];
+  const zoneData = new Float32Array(16);
+  const featherData = new Float32Array(4);
+  for (let z = 0; z < Math.min(4, zones.length); z += 1) {
+    zoneData[z * 4] = zones[z].cx;
+    zoneData[z * 4 + 1] = zones[z].cy;
+    zoneData[z * 4 + 2] = zones[z].rx;
+    zoneData[z * 4 + 3] = zones[z].ry;
+    featherData[z] = zones[z].feather;
+  }
+  gl.uniform4fv(uniforms.uZones, zoneData);
+  gl.uniform4fv(uniforms.uZoneFeather, featherData);
+  gl.uniform1f(uniforms.uZoneCount, Math.min(4, zones.length));
 
   gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   return true;
@@ -1416,6 +1546,9 @@ function setupEvents() {
   });
 
   dom.paperTone.addEventListener("change", () => handleChangeInput(false, 60));
+  if (dom.blankZones) {
+    dom.blankZones.addEventListener("change", () => handleChangeInput(false, 120));
+  }
   dom.symmetry.addEventListener("change", () => handleChangeInput(true, 90));
   dom.invert.addEventListener("change", () => handleChangeInput(true, 90));
 
@@ -1472,4 +1605,7 @@ function init() {
   }
 }
 
-init();
+// Skip UI init when the engine is loaded headlessly (e.g. render_cli.html)
+if (dom.stage) {
+  init();
+}

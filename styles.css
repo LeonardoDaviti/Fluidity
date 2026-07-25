@@ -161,6 +161,7 @@ output {
 }
 
 .control input[type="number"],
+.control textarea,
 .control select {
   width: 100%;
   border: 1px solid rgba(224, 224, 224, 0.32);
@@ -233,4 +234,16 @@ button:focus-visible {
     text-align: center;
     margin-left: 0;
   }
+}
+
+.control textarea {
+  font: inherit;
+  font-size: 12px;
+  resize: vertical;
+}
+
+.hint-text {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: rgba(224, 224, 224, 0.55);
 }

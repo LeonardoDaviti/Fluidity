@@ -206,6 +206,27 @@
             Invert Colors
           </label>
         </div>
+
+        <div class="control-group">
+          <h2>Islands &amp; Blank Areas</h2>
+
+          <div class="control">
+            <label for="islands">Ink Islands <output id="islandsValue"></output></label>
+            <input id="islands" type="range" min="0" max="1" step="0.01" value="0">
+          </div>
+
+          <div class="control">
+            <label for="islandScale">Island Scale <output id="islandScaleValue"></output></label>
+            <input id="islandScale" type="range" min="1" max="12" step="0.1" value="5">
+          </div>
+
+          <div class="control">
+            <label for="blankZones">Blank Areas</label>
+            <textarea id="blankZones" rows="3" spellcheck="false"
+              placeholder="cx,cy,rx,ry,feather (0..1 per line, max 4)&#10;e.g. 0.5,0.15,0.55,0.14,0.5"></textarea>
+            <p class="hint-text">Elliptical zones kept free of ink — e.g. space for a title.</p>
+          </div>
+        </div>
       </aside>
     </main>
 

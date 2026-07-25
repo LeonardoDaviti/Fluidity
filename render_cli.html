@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FluidForm headless renderer</title>
+<style>html,body{margin:0;padding:0;overflow:hidden;}canvas{display:block;}</style>
+</head>
+<body>
+<canvas id="out"></canvas>
+<script src="app.js"></script>
+<script>
+// Headless renderer: open render_cli.html?w=1339&h=1890&seed=…&preset=sumi_monolith
+//   &flow=…&islands=0.4&zones=0.5,0.15,0.55,0.14,0.5;0.8,0.5,0.2,0.3,0.4
+// Any settings key can be overridden via query params. Screenshot the window to save.
+(function () {
+  const q = new URLSearchParams(location.search);
+  const num = (key, fallback) => {
+    const v = Number(q.get(key));
+    return Number.isFinite(v) ? v : fallback;
+  };
+
+  const defaults = {
+    seed: 144221,
+    flow: 0.82, direction: 38, swirl: 1.24, turbulence: 0.68,
+    viscosity: 0.44, scale: 2.85, detail: 5,
+    contrast: 1.42, softness: 0.08, dominance: 0.12, grain: 0.045,
+    paperTone: "light", symmetry: "none", invert: false,
+    islands: 0, islandScale: 5, blankZones: []
+  };
+
+  const settings = { ...defaults };
+  const presetName = q.get("preset");
+  if (presetName && typeof PRESETS === "object" && PRESETS[presetName]) {
+    Object.assign(settings, PRESETS[presetName]);
+  }
+  for (const key of ["seed", "flow", "direction", "swirl", "turbulence", "viscosity",
+                     "scale", "detail", "contrast", "softness", "dominance", "grain",
+                     "islands", "islandScale"]) {
+    if (q.has(key)) {
+      settings[key] = num(key, settings[key]);
+    }
+  }
+  if (q.has("paperTone")) settings.paperTone = q.get("paperTone");
+  if (q.has("symmetry")) settings.symmetry = q.get("symmetry");
+  if (q.has("invert")) settings.invert = q.get("invert") === "1";
+  if (q.has("zones")) {
+    settings.blankZones = parseBlankZones(q.get("zones").split(";").join("\n"));
+  }
+
+  const width = Math.round(num("w", 1339));
+  const height = Math.round(num("h", 1890));
+  const canvas = document.getElementById("out");
+  const ctx = canvas.getContext("2d", { alpha: false });
+  const buffers = { width: 0, height: 0, field: null, temp: null, imageData: null };
+  renderFluid(canvas, ctx, width, height, settings, num("time", 0), buffers);
+  document.title = "done";
+})();
+</script>
+</body>
+</html>
